@@ -157,6 +157,56 @@ func preloadImages(cfg *config.Node) error {
 	return nil
 }
 
+// ImportImages will search for container image archives in a folder and import them into containerd
+func ImportImages(images, containerdAddress string) error {
+	fileInfo, err := os.Stat(images)
+	if os.IsNotExist(err) {
+		return nil
+	} else if err != nil {
+		logrus.Errorf("Unable to find images in %s: %v", images, err)
+		return nil
+	}
+
+	if !fileInfo.IsDir() {
+		return nil
+	}
+
+	fileInfos, err := ioutil.ReadDir(images)
+	if err != nil {
+		logrus.Errorf("Unable to read images in %s: %v", images, err)
+		return nil
+	}
+
+	client, err := containerd.New(containerdAddress)
+	if err != nil {
+		return err
+	}
+	defer client.Close()
+
+	ctxContainerD := namespaces.WithNamespace(context.Background(), "k8s.io")
+
+	for _, fileInfo := range fileInfos {
+		if fileInfo.IsDir() {
+			continue
+		}
+
+		filePath := filepath.Join(images, fileInfo.Name())
+
+		file, err := os.Open(filePath)
+		if err != nil {
+			logrus.Errorf("Unable to read %s: %v", filePath, err)
+			continue
+		}
+
+		logrus.Debugf("Import %s", filePath)
+		_, err = client.Import(ctxContainerD, file)
+		if err != nil {
+			logrus.Errorf("Unable to import %s: %v", filePath, err)
+		}
+	}
+	return nil
+}
+
 func setupContainerdConfig(ctx context.Context, cfg *config.Node) error {
 	var containerdTemplate string
 	containerdConfig := templates.ContainerdConfig{
